@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, ChevronDown, Folder, FolderOpen, Star, StarOff, HardDrive, Home, Settings2 } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Star, StarOff, HardDrive, Home, Settings2, Menu } from 'lucide-react';
 import { getTree } from '../api/files';
 
 const BOOKMARKS_KEY = 'vps-explorer-bookmarks';
@@ -77,7 +77,7 @@ function TreeNode({ node, currentPath, onNavigate, depth = 0 }) {
   );
 }
 
-export default function Sidebar({ currentPath, onNavigate }) {
+export default function Sidebar({ currentPath, onNavigate, onToggle }) {
   const [bookmarks, setBookmarks] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem(BOOKMARKS_KEY)) || DEFAULT_BOOKMARKS;
@@ -122,6 +122,12 @@ export default function Sidebar({ currentPath, onNavigate }) {
           <HardDrive size={16} className="text-blue-400" />
           <span className="text-sm font-semibold text-slate-200">VPS Explorer</span>
         </div>
+        <button
+          onClick={onToggle}
+          className="md:hidden p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-slate-200 transition-colors"
+        >
+          <Menu size={16} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto py-2 space-y-4">

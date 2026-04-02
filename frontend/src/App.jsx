@@ -21,6 +21,7 @@ import {
   searchFiles,
   downloadUrl,
 } from './api/files';
+import { Menu } from 'lucide-react';
 import './App.css';
 
 function Panel({ initialPath, onPathChange }) {
@@ -315,15 +316,40 @@ function Panel({ initialPath, onPathChange }) {
 
 export default function App() {
   const [sidebarPath, setSidebarPath] = useState('/');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <div className="flex h-screen bg-slate-900 overflow-hidden">
-      <Sidebar
-        currentPath={sidebarPath}
-        onNavigate={(path) => setSidebarPath(path)}
-      />
-      <div className="flex-1 flex overflow-hidden">
-        <Panel initialPath="/" onPathChange={setSidebarPath} />
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-20 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar wrapper */}
+      <div className={`fixed inset-y-0 left-0 z-30 md:relative md:flex md:translate-x-0 transition-transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <Sidebar
+          currentPath={sidebarPath}
+          onNavigate={(path) => { setSidebarPath(path); setSidebarOpen(false); }}
+          onToggle={() => setSidebarOpen(p => !p)}
+        />
+      </div>
+
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Mobile hamburger button */}
+        <div className="md:hidden flex items-center px-3 py-2 border-b border-slate-700 bg-slate-800/60">
+          <button
+            onClick={() => setSidebarOpen(p => !p)}
+            className="p-1.5 hover:bg-slate-700 rounded text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            <Menu size={18} />
+          </button>
+        </div>
+        <div className="flex-1 flex overflow-hidden">
+          <Panel initialPath="/" onPathChange={setSidebarPath} />
+        </div>
       </div>
     </div>
   );
