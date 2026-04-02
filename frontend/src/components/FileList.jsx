@@ -221,7 +221,7 @@ export default function FileList({
                 {file.isSymlink && <span className="text-xs text-cyan-400 ml-1">→</span>}
               </span>
               <span className="w-20 text-right text-xs text-slate-500 hidden sm:block">
-                {formatSize(file.size)}
+                {file.isDirectory ? '—' : formatSize(file.size)}
               </span>
               <span className="w-28 text-xs text-slate-500 font-mono hidden md:block">
                 {file.permissions}

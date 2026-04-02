@@ -171,13 +171,12 @@ app.get('/api/files', async (req, res) => {
         try {
           const stat = await fsp.stat(fullPath);
           const lstat = await fsp.lstat(fullPath);
-          const size = entry.isDirectory() ? await getDirSizeBytes(fullPath) : stat.size;
           return {
             name: entry.name,
             path: stripHostRoot(fullPath),
             isDirectory: entry.isDirectory(),
             isSymlink: lstat.isSymbolicLink(),
-            size,
+            size: stat.size,
             modified: stat.mtime,
             created: stat.birthtime,
             permissions: formatPermissions(stat.mode),
