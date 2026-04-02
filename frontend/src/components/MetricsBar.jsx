@@ -12,7 +12,7 @@ function formatBytes(bytes) {
   return `${val.toFixed(1)} ${units[idx]}`;
 }
 
-export default function MetricsBar() {
+export default function MetricsBar({ onRamClick }) {
   const [metrics, setMetrics] = useState(null);
   const [error, setError] = useState(null);
 
@@ -51,13 +51,16 @@ export default function MetricsBar() {
           <div className="text-[10px] text-slate-400 uppercase">CPU</div>
           <div className="text-sm text-slate-200 font-semibold">{cpu}%</div>
         </div>
-        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-2">
+        <button
+          onClick={onRamClick}
+          className="bg-slate-800/60 border border-slate-700 rounded-lg p-2 text-left hover:border-blue-500/60 transition-colors"
+        >
           <div className="text-[10px] text-slate-400 uppercase">RAM</div>
           <div className="text-sm text-slate-200 font-semibold">{ram}%</div>
           <div className="text-[10px] text-slate-500">
             {formatBytes(metrics?.ram?.used)} / {formatBytes(metrics?.ram?.total)}
           </div>
-        </div>
+        </button>
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-2">
           <div className="text-[10px] text-slate-400 uppercase">Disk</div>
           <div className="text-sm text-slate-200 font-semibold">{disk}%</div>

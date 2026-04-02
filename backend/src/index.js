@@ -91,6 +91,40 @@ function getDiskUsage(pathToCheck) {
   });
 }
 
+function getDirSizeBytes(dirPath) {
+  return new Promise((resolve) => {
+    exec(`du -sk "${dirPath}"`, (err, stdout) => {
+      if (err) return resolve(0);
+      const parts = stdout.trim().split(/\s+/);
+      const kb = parseInt(parts[0], 10);
+      if (isNaN(kb)) return resolve(0);
+      resolve(kb * 1024);
+    });
+  });
+}
+
+function getProcesses() {
+  return new Promise((resolve, reject) => {
+    exec('ps -eo pid,comm,%mem,rss --sort=-%mem', (err, stdout) => {
+      if (err) return reject(err);
+      const lines = stdout.trim().split('\n').slice(1);
+      const processes = lines.map(line => {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[0];
+        const memPercent = parseFloat(parts[2]);
+        const rssKB = parseInt(parts[3], 10);
+        return {
+          pid,
+          command: parts[1],
+          memPercent: isNaN(memPercent) ? 0 : Math.round(memPercent * 10) / 10,
+          rssMB: isNaN(rssKB) ? 0 : Math.round(rssKB / 1024),
+        };
+      });
+      resolve(processes);
+    });
+  });
+}
+
 function formatPermissions(mode) {
   const types = { 0o040000: 'd', 0o120000: 'l', 0o100000: '-' };
   const type = types[mode & 0o170000] || '-';
@@ -137,12 +171,13 @@ app.get('/api/files', async (req, res) => {
         try {
           const stat = await fsp.stat(fullPath);
           const lstat = await fsp.lstat(fullPath);
+          const size = entry.isDirectory() ? await getDirSizeBytes(fullPath) : stat.size;
           return {
             name: entry.name,
             path: stripHostRoot(fullPath),
             isDirectory: entry.isDirectory(),
             isSymlink: lstat.isSymbolicLink(),
-            size: stat.size,
+            size,
             modified: stat.mtime,
             created: stat.birthtime,
             permissions: formatPermissions(stat.mode),
@@ -205,6 +240,16 @@ app.get('/api/metrics', async (req, res) => {
       ram,
       disk,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/processes - top processes by RAM
+app.get('/api/processes', async (req, res) => {
+  try {
+    const processes = await getProcesses();
+    res.json({ processes });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -20,10 +20,11 @@ export default function ContextMenu({ x, y, file, onClose, onAction }) {
     };
   }, [onClose]);
 
-  // Adjust position to stay in viewport
+  // Centered menu
   const style = {
-    left: Math.min(x, window.innerWidth - 200),
-    top: Math.min(y, window.innerHeight - 300),
+    left: '50%',
+    top: '50%',
+    transform: 'translate(-50%, -50%)',
   };
 
   const items = [

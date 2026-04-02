@@ -6,6 +6,7 @@ import FileViewer from './components/FileViewer';
 import StatusBar from './components/StatusBar';
 import SearchResults from './components/SearchResults';
 import MetricsBar from './components/MetricsBar';
+import ProcessList from './components/ProcessList';
 import {
   ConfirmModal,
   NewItemModal,
@@ -41,6 +42,7 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
   const [uploadProgress, setUploadProgress] = useState(null);
   const [error, setError] = useState(null);
   const [dualPanel, setDualPanel] = useState(false);
+  const [showProcesses, setShowProcesses] = useState(false);
 
   const currentPath = history[historyIdx] || initialPath;
 
@@ -202,7 +204,8 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <MetricsBar />
+      <MetricsBar onRamClick={() => setShowProcesses(p => !p)} />
+      <ProcessList visible={showProcesses} />
       <Toolbar
         currentPath={currentPath}
         onNavigate={navigate}
