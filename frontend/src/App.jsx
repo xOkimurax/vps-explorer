@@ -383,7 +383,7 @@ export default function App() {
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile hamburger button */}
-        <div className="md:hidden flex items-center px-3 py-2 border-b border-slate-700 bg-slate-800/60">
+        <div className="md:hidden flex items-center px-3 py-2 border-b border-slate-700 bg-slate-800">
           <button
             onClick={() => setSidebarOpen(p => !p)}
             className="p-1.5 hover:bg-slate-700 rounded text-slate-400 hover:text-slate-200 transition-colors"
