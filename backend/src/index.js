@@ -5,6 +5,8 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const multer = require('multer');
 const mime = require('mime-types');
+const os = require('os');
+const { exec } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 4001;
@@ -43,6 +45,50 @@ function resolvePath(inputPath) {
 function stripHostRoot(p) {
   if (HOST_ROOT && p.startsWith(HOST_ROOT)) return p.slice(HOST_ROOT.length) || '/';
   return p;
+}
+
+let prevCpuSnapshot = os.cpus();
+function getCpuUsagePercent() {
+  const cpus = os.cpus();
+  const totals = cpus.map((c, i) => {
+    const prev = prevCpuSnapshot[i];
+    const prevTimes = prev.times;
+    const times = c.times;
+    const prevTotal = Object.values(prevTimes).reduce((a, b) => a + b, 0);
+    const total = Object.values(times).reduce((a, b) => a + b, 0);
+    const totalDelta = total - prevTotal;
+    const idleDelta = times.idle - prevTimes.idle;
+    return { totalDelta, idleDelta };
+  });
+  prevCpuSnapshot = cpus;
+  const totalDelta = totals.reduce((a, b) => a + b.totalDelta, 0);
+  const idleDelta = totals.reduce((a, b) => a + b.idleDelta, 0);
+  if (totalDelta === 0) return 0;
+  return Math.round((1 - idleDelta / totalDelta) * 100);
+}
+
+function getRamUsage() {
+  const total = os.totalmem();
+  const free = os.freemem();
+  const used = total - free;
+  const percent = Math.round((used / total) * 100);
+  return { total, used, free, percent };
+}
+
+function getDiskUsage(pathToCheck) {
+  return new Promise((resolve, reject) => {
+    exec(`df -k ${pathToCheck}`, (err, stdout) => {
+      if (err) return reject(err);
+      const lines = stdout.trim().split('\n');
+      if (lines.length < 2) return reject(new Error('df output invalid'));
+      const parts = lines[1].split(/\s+/);
+      const total = parseInt(parts[1], 10) * 1024;
+      const used = parseInt(parts[2], 10) * 1024;
+      const available = parseInt(parts[3], 10) * 1024;
+      const percent = parseInt(parts[4].replace('%', ''), 10);
+      resolve({ total, used, available, percent });
+    });
+  });
 }
 
 function formatPermissions(mode) {
@@ -141,6 +187,23 @@ app.get('/api/files', async (req, res) => {
       path: cleanPath,
       parent: cleanPath !== '/' ? cleanParent : null,
       files,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/metrics - system metrics
+app.get('/api/metrics', async (req, res) => {
+  try {
+    const cpu = getCpuUsagePercent();
+    const ram = getRamUsage();
+    const diskPath = fs.existsSync('/host/root') ? '/host/root' : (fs.existsSync('/host') ? '/host' : '/');
+    const disk = await getDiskUsage(diskPath);
+    res.json({
+      cpu: { percent: cpu },
+      ram,
+      disk,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

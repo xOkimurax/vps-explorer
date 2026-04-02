@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useImperativeHandle, forwardRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import FileList from './components/FileList';
 import FileViewer from './components/FileViewer';
 import StatusBar from './components/StatusBar';
 import SearchResults from './components/SearchResults';
+import MetricsBar from './components/MetricsBar';
 import {
   ConfirmModal,
   NewItemModal,
@@ -24,7 +25,7 @@ import {
 import { Menu } from 'lucide-react';
 import './App.css';
 
-function Panel({ initialPath, onPathChange }) {
+const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
   const [files, setFiles] = useState([]);
   const [parentPath, setParentPath] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,6 +56,10 @@ function Panel({ initialPath, onPathChange }) {
     setSearchQuery('');
     setSearchResults(null);
   }, [historyIdx]);
+
+  useImperativeHandle(ref, () => ({
+    navigate,
+  }));
 
   const historyNav = useCallback((dir) => {
     const newIdx = historyIdx + dir;
@@ -197,6 +202,7 @@ function Panel({ initialPath, onPathChange }) {
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <MetricsBar />
       <Toolbar
         currentPath={currentPath}
         onNavigate={navigate}
@@ -312,11 +318,12 @@ function Panel({ initialPath, onPathChange }) {
       )}
     </div>
   );
-}
+});
 
 export default function App() {
   const [sidebarPath, setSidebarPath] = useState('/');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const panelRef = useRef(null);
 
   return (
     <div className="flex h-screen bg-slate-900 overflow-hidden">
@@ -332,7 +339,11 @@ export default function App() {
       <div className={`fixed inset-y-0 left-0 z-30 md:relative md:flex md:translate-x-0 transition-transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <Sidebar
           currentPath={sidebarPath}
-          onNavigate={(path) => { setSidebarPath(path); setSidebarOpen(false); }}
+          onNavigate={(path) => {
+            setSidebarPath(path);
+            panelRef.current?.navigate(path);
+            setSidebarOpen(false);
+          }}
           onToggle={() => setSidebarOpen(p => !p)}
         />
       </div>
@@ -348,7 +359,7 @@ export default function App() {
           </button>
         </div>
         <div className="flex-1 flex overflow-hidden">
-          <Panel initialPath="/" onPathChange={setSidebarPath} />
+          <Panel ref={panelRef} initialPath="/" onPathChange={setSidebarPath} />
         </div>
       </div>
     </div>
