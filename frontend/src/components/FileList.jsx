@@ -30,6 +30,11 @@ export default function FileList({
   const [ctxMenu, setCtxMenu] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const containerRef = useRef(null);
+  const longPressTimer = useRef(null);
+  const longPressTriggered = useRef(false);
+  const touchMoved = useRef(false);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
 
   const handleSort = (key) => {
     if (sortKey === key) setSortAsc(!sortAsc);
@@ -60,7 +65,22 @@ export default function FileList({
     if (droppedFiles.length > 0) onAction('upload-drop', null, droppedFiles);
   }, [onAction]);
 
+  const isTouchDevice = () => window.matchMedia('(hover: none)').matches;
+
   const handleClick = (file, e) => {
+    // En touch: si ya hay selección activa, tap togglea el item
+    if (isTouchDevice() && selected.length > 0) {
+      onSelect(prev => {
+        const set = new Set(prev);
+        if (set.has(file.path)) set.delete(file.path);
+        else set.add(file.path);
+        return [...set];
+      });
+      return;
+    }
+    // En touch sin selección activa: tap directo abre/navega (manejado en handleTouchEnd)
+    if (isTouchDevice()) return;
+    // Desktop: ctrl/meta para multi-select
     if (e.ctrlKey || e.metaKey) {
       onSelect(prev => {
         const set = new Set(prev);
@@ -79,8 +99,48 @@ export default function FileList({
   };
 
   const handleDoubleClick = (file) => {
+    if (isTouchDevice()) return; // touch usa tap directo
     if (file.isDirectory) onNavigate(file.path);
     else onAction('view', file);
+  };
+
+  const handleTouchStart = (file, e) => {
+    longPressTriggered.current = false;
+    touchMoved.current = false;
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    longPressTimer.current = setTimeout(() => {
+      longPressTriggered.current = true;
+      // vibrar si está disponible
+      if (navigator.vibrate) navigator.vibrate(50);
+      // activar selección
+      onSelect(prev => {
+        const set = new Set(prev);
+        set.add(file.path);
+        return [...set];
+      });
+    }, 500);
+  };
+
+  const handleTouchEnd = (file, e) => {
+    clearTimeout(longPressTimer.current);
+    if (touchMoved.current) return;
+    if (longPressTriggered.current) {
+      e.preventDefault(); // evitar click after longpress
+      return;
+    }
+    // Tap normal: si hay selección activa, manejado en handleClick
+    if (selected.length > 0) return;
+    // Tap normal sin selección: abrir/navegar
+    if (file.isDirectory) onNavigate(file.path);
+    else onAction('view', file);
+  };
+
+  const handleTouchMove = (e) => {
+    clearTimeout(longPressTimer.current);
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const dy = e.touches[0].clientY - touchStartY.current;
+    if (Math.sqrt(dx * dx + dy * dy) > 10) touchMoved.current = true;
   };
 
   if (loading) {
@@ -148,6 +208,9 @@ export default function FileList({
               onClick={(e) => handleClick(file, e)}
               onDoubleClick={() => handleDoubleClick(file)}
               onContextMenu={(e) => handleContextMenu(e, file)}
+              onTouchStart={(e) => handleTouchStart(file, e)}
+              onTouchEnd={(e) => handleTouchEnd(file, e)}
+              onTouchMove={(e) => handleTouchMove(e)}
             >
               <FileIcon file={file} open={false} size={16} />
               <span className="flex-1 truncate text-sm text-slate-200 min-w-0">
@@ -198,6 +261,9 @@ export default function FileList({
                 onClick={(e) => handleClick(file, e)}
                 onDoubleClick={() => handleDoubleClick(file)}
                 onContextMenu={(e) => handleContextMenu(e, file)}
+                onTouchStart={() => handleTouchStart(file)}
+                onTouchEnd={(e) => handleTouchEnd(file, e)}
+                onTouchMove={handleTouchMove}
               >
                 <FileIcon file={file} open={false} size={32} />
                 <span className="text-xs text-slate-300 text-center truncate w-full">{file.name}</span>
