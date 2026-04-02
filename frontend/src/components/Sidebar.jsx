@@ -115,7 +115,7 @@ export default function Sidebar({ currentPath, onNavigate, onToggle }) {
   };
 
   return (
-    <aside className="w-52 bg-slate-800/60 border-r border-slate-700 flex flex-col overflow-hidden shrink-0">
+    <aside className="w-52 bg-slate-800 border-r border-slate-700 flex flex-col overflow-hidden shrink-0">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-3 border-b border-slate-700">
         <div className="flex items-center gap-2">
