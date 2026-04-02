@@ -31,7 +31,9 @@ export default function ContextMenu({ x, y, file, onClose, onAction }) {
     ...(file.isDirectory
       ? [{ icon: FolderOpen, label: 'Open', action: 'open', color: 'text-blue-400' }]
       : [{ icon: Eye, label: 'View', action: 'view', color: 'text-blue-400' }]),
-    ...(file.isDirectory ? [] : [
+    ...(file.isDirectory ? [
+      { icon: RefreshCw, label: 'Calcular tamaño', action: 'dir-size', color: 'text-slate-300' },
+    ] : [
       { icon: FileText, label: 'Edit', action: 'edit', color: 'text-slate-300' },
     ]),
     'sep',

@@ -118,6 +118,16 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
       case 'delete':
         setModal({ type: 'delete', data: file });
         break;
+      case 'dir-size':
+        try {
+          const res = await fetch(`/api/dirsize?path=${encodeURIComponent(file.path)}`);
+          if (!res.ok) throw new Error('No se pudo calcular el tamaño');
+          const data = await res.json();
+          setModal({ type: 'dir-size', data: { path: data.path, size: data.size } });
+        } catch (err) {
+          setError(err.message);
+        }
+        break;
       case 'download':
         window.open(downloadUrl(file.path), '_blank');
         break;
@@ -165,6 +175,18 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
     }
     if (clipboard.mode === 'cut') setClipboard(null);
     refresh();
+  };
+
+  const formatBytes = (bytes) => {
+    if (!bytes && bytes !== 0) return '—';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let idx = 0;
+    let val = bytes;
+    while (val >= 1024 && idx < units.length - 1) {
+      val /= 1024;
+      idx++;
+    }
+    return `${val.toFixed(1)} ${units[idx]}`;
   };
 
   const handleDeleteSelected = () => {
@@ -295,6 +317,14 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
           onConfirm={confirmModal}
           onCancel={() => setModal(null)}
           danger
+        />
+      )}
+      {modal?.type === 'dir-size' && (
+        <ConfirmModal
+          title="Tamaño de carpeta"
+          message={`"${modal.data.path}" ocupa ${formatBytes(modal.data.size)}`}
+          onConfirm={() => setModal(null)}
+          onCancel={() => setModal(null)}
         />
       )}
       {(modal?.type === 'new-file' || modal?.type === 'new-folder') && (

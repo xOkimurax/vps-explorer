@@ -254,6 +254,17 @@ app.get('/api/processes', async (req, res) => {
   }
 });
 
+// GET /api/dirsize?path=/ruta - folder size on demand
+app.get('/api/dirsize', async (req, res) => {
+  try {
+    const dirPath = resolvePath(req.query.path || '/');
+    const size = await getDirSizeBytes(dirPath);
+    res.json({ path: stripHostRoot(dirPath), size });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/file?path=/ruta - read file content
 app.get('/api/file', async (req, res) => {
   try {
