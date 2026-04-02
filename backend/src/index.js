@@ -103,12 +103,53 @@ function getDirSizeBytes(dirPath) {
   });
 }
 
-function getProcesses() {
+async function getHostMemTotalKB() {
+  try {
+    const meminfoPath = fs.existsSync('/host/proc/meminfo') ? '/host/proc/meminfo' : null;
+    if (meminfoPath) {
+      const txt = await fsp.readFile(meminfoPath, 'utf8');
+      const line = txt.split('\n').find(l => l.startsWith('MemTotal:'));
+      if (line) {
+        const kb = parseInt(line.replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(kb)) return kb;
+      }
+    }
+  } catch {}
+  return Math.max(1, Math.round(os.totalmem() / 1024));
+}
+
+async function getProcesses() {
+  const totalKB = await getHostMemTotalKB();
+  const hostProc = fs.existsSync('/host/proc') ? '/host/proc' : null;
+
+  if (hostProc) {
+    const entries = await fsp.readdir(hostProc);
+    const pids = entries.filter(e => /^\d+$/.test(e));
+    const processes = [];
+    for (const pid of pids) {
+      try {
+        const status = await fsp.readFile(path.join(hostProc, pid, 'status'), 'utf8');
+        const nameLine = status.split('\n').find(l => l.startsWith('Name:')) || '';
+        const rssLine = status.split('\n').find(l => l.startsWith('VmRSS:')) || '';
+        const name = nameLine.split(/\s+/)[1] || 'unknown';
+        const rssKB = parseInt(rssLine.replace(/[^0-9]/g, ''), 10);
+        if (isNaN(rssKB)) continue;
+        const memPercent = Math.round((rssKB / totalKB) * 1000) / 10;
+        processes.push({
+          pid,
+          command: name,
+          memPercent,
+          rssMB: Math.round(rssKB / 1024),
+        });
+      } catch {}
+    }
+    return processes.sort((a, b) => b.memPercent - a.memPercent).slice(0, 50);
+  }
+
   return new Promise((resolve, reject) => {
     exec('ps -o pid,comm,rss,vsz', (err, stdout) => {
       if (err) return reject(err);
       const lines = stdout.trim().split('\n').slice(1);
-      const totalKB = Math.max(1, Math.round(os.totalmem() / 1024));
       const processes = lines.map(line => {
         const parts = line.trim().split(/\s+/);
         const pid = parts[0];
