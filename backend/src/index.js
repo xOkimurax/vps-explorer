@@ -105,19 +105,22 @@ function getDirSizeBytes(dirPath) {
 
 function getProcesses() {
   return new Promise((resolve, reject) => {
-    exec('ps -o pid,comm,%mem,rss', (err, stdout) => {
+    exec('ps -o pid,comm,rss,vsz', (err, stdout) => {
       if (err) return reject(err);
       const lines = stdout.trim().split('\n').slice(1);
+      const totalKB = Math.max(1, Math.round(os.totalmem() / 1024));
       const processes = lines.map(line => {
         const parts = line.trim().split(/\s+/);
         const pid = parts[0];
-        const memPercent = parseFloat(parts[2]);
-        const rssKB = parseInt(parts[3], 10);
+        const rssKB = parseInt(parts[2], 10);
+        const vszKB = parseInt(parts[3], 10);
+        const memPercent = isNaN(rssKB) ? 0 : Math.round((rssKB / totalKB) * 1000) / 10;
         return {
           pid,
           command: parts[1],
-          memPercent: isNaN(memPercent) ? 0 : Math.round(memPercent * 10) / 10,
+          memPercent,
           rssMB: isNaN(rssKB) ? 0 : Math.round(rssKB / 1024),
+          vszMB: isNaN(vszKB) ? 0 : Math.round(vszKB / 1024),
         };
       }).sort((a, b) => b.memPercent - a.memPercent);
       resolve(processes);
