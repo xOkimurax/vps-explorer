@@ -12,6 +12,7 @@ services:
     environment:
       - PORT=4001
       - NODE_ENV=production
+      - HOST_ROOT=/host
     restart: unless-stopped
 
   frontend:

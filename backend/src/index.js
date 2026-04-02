@@ -8,6 +8,7 @@ const mime = require('mime-types');
 
 const app = express();
 const PORT = process.env.PORT || 4001;
+const HOST_ROOT = process.env.HOST_ROOT || '';
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -32,10 +33,16 @@ const upload = multer({ storage });
 
 // Security: resolve and validate paths
 function resolvePath(inputPath) {
-  if (!inputPath) return '/';
-  // Normalize but allow any absolute path on the system
+  if (!inputPath) return HOST_ROOT + '/';
   const resolved = path.resolve(inputPath);
-  return resolved;
+  // If already prefixed with HOST_ROOT, return as-is
+  if (HOST_ROOT && resolved.startsWith(HOST_ROOT)) return resolved;
+  return HOST_ROOT + resolved;
+}
+
+function stripHostRoot(p) {
+  if (HOST_ROOT && p.startsWith(HOST_ROOT)) return p.slice(HOST_ROOT.length) || '/';
+  return p;
 }
 
 function formatPermissions(mode) {
@@ -86,7 +93,7 @@ app.get('/api/files', async (req, res) => {
           const lstat = await fsp.lstat(fullPath);
           return {
             name: entry.name,
-            path: fullPath,
+            path: stripHostRoot(fullPath),
             isDirectory: entry.isDirectory(),
             isSymlink: lstat.isSymbolicLink(),
             size: stat.size,
@@ -102,7 +109,7 @@ app.get('/api/files', async (req, res) => {
         } catch (err) {
           return {
             name: entry.name,
-            path: fullPath,
+            path: stripHostRoot(fullPath),
             isDirectory: entry.isDirectory(),
             isSymlink: false,
             size: 0,
@@ -128,9 +135,11 @@ app.get('/api/files', async (req, res) => {
     });
 
     const parentPath = path.dirname(dirPath);
+    const cleanPath = stripHostRoot(dirPath);
+    const cleanParent = parentPath && parentPath !== dirPath ? stripHostRoot(parentPath) : null;
     res.json({
-      path: dirPath,
-      parent: dirPath !== '/' ? parentPath : null,
+      path: cleanPath,
+      parent: cleanPath !== '/' ? cleanParent : null,
       files,
     });
   } catch (err) {
