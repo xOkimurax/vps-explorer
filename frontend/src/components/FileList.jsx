@@ -182,13 +182,16 @@ export default function FileList({
       )}
 
       {/* Files */}
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto p-2" style={{ touchAction: "pan-y" }}>
         {/* Up directory */}
         {parentPath && (
           <div
             className="file-row text-slate-400"
+            onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; touchStartY.current = e.touches[0].clientY; touchMoved.current = false; longPressTriggered.current = false; }}
+            onTouchMove={(e) => handleTouchMove(e)}
+            onTouchEnd={(e) => { clearTimeout(longPressTimer.current); if (touchMoved.current || longPressTriggered.current) return; onNavigate(parentPath); }}
             onDoubleClick={() => onNavigate(parentPath)}
-            onClick={() => onNavigate(parentPath)}
+            onClick={() => { if (!isTouchDevice()) onNavigate(parentPath); }}
           >
             <ArrowLeft size={16} className="text-slate-500 shrink-0" />
             <span className="text-sm">..</span>
@@ -261,7 +264,7 @@ export default function FileList({
                 onClick={(e) => handleClick(file, e)}
                 onDoubleClick={() => handleDoubleClick(file)}
                 onContextMenu={(e) => handleContextMenu(e, file)}
-                onTouchStart={() => handleTouchStart(file)}
+                onTouchStart={(e) => handleTouchStart(file, e)}
                 onTouchEnd={(e) => handleTouchEnd(file, e)}
                 onTouchMove={handleTouchMove}
               >
