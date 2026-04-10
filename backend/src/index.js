@@ -584,6 +584,66 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', pid: process.pid, uptime: process.uptime() });
 });
 
+// ─── Agents Store (Claude Code subagents) ───────────────────────────────────
+const agentsStore = [];
+let AGENT_TTL_MS = 5 * 60 * 1000; // default 5 min retention
+
+function cleanupAgents() {
+  const now = Date.now();
+  for (let i = agentsStore.length - 1; i >= 0; i--) {
+    if (now - agentsStore[i].updatedAt > AGENT_TTL_MS) {
+      agentsStore.splice(i, 1);
+    }
+  }
+}
+setInterval(cleanupAgents, 30000);
+
+app.get('/api/agents', (req, res) => {
+  cleanupAgents();
+  res.json({ agents: agentsStore.map(a => ({ ...a })) });
+});
+
+app.post('/api/agents', (req, res) => {
+  const { id, description, status = 'running' } = req.body;
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const existing = agentsStore.find(a => a.id === id);
+  if (existing) {
+    existing.updatedAt = Date.now();
+    if (description) existing.description = description;
+    if (status) existing.status = status;
+  } else {
+    agentsStore.push({ id, description: description || '', status, createdAt: Date.now(), updatedAt: Date.now() });
+  }
+  res.json({ success: true });
+});
+
+app.put('/api/agents/:id', (req, res) => {
+  const agent = agentsStore.find(a => a.id === req.params.id);
+  if (!agent) return res.status(404).json({ error: 'agent not found' });
+  const { status, result, error } = req.body;
+  if (status) agent.status = status;
+  if (result !== undefined) agent.result = result;
+  if (error !== undefined) agent.error = error;
+  agent.updatedAt = Date.now();
+  res.json({ success: true });
+});
+
+app.get('/api/agents/config', (req, res) => {
+  res.json({ retentionMs: AGENT_TTL_MS });
+});
+
+app.put('/api/agents/config', (req, res) => {
+  const { retentionMs } = req.body;
+  if (!retentionMs || retentionMs < 60000) return res.status(400).json({ error: 'min 1 minute' });
+  AGENT_TTL_MS = retentionMs;
+  res.json({ success: true, retentionMs: AGENT_TTL_MS });
+});
+
+// ─── Health check ────────────────────────────────────────────────────────────
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', pid: process.pid, uptime: process.uptime() });
+});
+
 app.listen(PORT, () => {
   console.log(`VPS Explorer Backend running on port ${PORT}`);
 });

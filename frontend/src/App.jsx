@@ -7,6 +7,7 @@ import StatusBar from './components/StatusBar';
 import SearchResults from './components/SearchResults';
 import MetricsBar from './components/MetricsBar';
 import ProcessList from './components/ProcessList';
+import AgentList from './components/AgentList';
 import {
   ConfirmModal,
   NewItemModal,
@@ -43,6 +44,8 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
   const [error, setError] = useState(null);
   const [dualPanel, setDualPanel] = useState(false);
   const [showProcesses, setShowProcesses] = useState(false);
+  const [showAgents, setShowAgents] = useState(false);
+  const [agentCount, setAgentCount] = useState(0);
 
   const currentPath = history[historyIdx] || initialPath;
 
@@ -87,6 +90,19 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
   }, [currentPath]);
 
   useEffect(() => { refresh(); }, [currentPath]);
+
+  useEffect(() => {
+    const fetchCount = async () => {
+      try {
+        const res = await fetch('/api/agents');
+        const data = await res.json();
+        setAgentCount(data.agents?.length || 0);
+      } catch {}
+    };
+    fetchCount();
+    const id = setInterval(fetchCount, 10000);
+    return () => clearInterval(id);
+  }, []);
 
   const handleSearch = async (q) => {
     if (!q) { setSearchQuery(''); setSearchResults(null); return; }
@@ -226,8 +242,9 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <MetricsBar onRamClick={() => setShowProcesses(p => !p)} />
+      <MetricsBar onRamClick={() => setShowProcesses(p => !p)} onAgentsClick={() => setShowAgents(p => !p)} agentCount={agentCount} />
       <ProcessList visible={showProcesses} />
+      <AgentList visible={showAgents} />
       <Toolbar
         currentPath={currentPath}
         onNavigate={navigate}

@@ -12,7 +12,7 @@ function formatBytes(bytes) {
   return `${val.toFixed(1)} ${units[idx]}`;
 }
 
-export default function MetricsBar({ onRamClick }) {
+export default function MetricsBar({ onRamClick, onAgentsClick, agentCount = 0 }) {
   const [metrics, setMetrics] = useState(null);
   const [error, setError] = useState(null);
 
@@ -46,7 +46,7 @@ export default function MetricsBar({ onRamClick }) {
 
   return (
     <div className="px-4 pt-3 pb-2">
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-2">
           <div className="text-[10px] text-slate-400 uppercase">CPU</div>
           <div className="text-sm text-slate-200 font-semibold">{cpu}%</div>
@@ -68,6 +68,20 @@ export default function MetricsBar({ onRamClick }) {
             {formatBytes(metrics?.disk?.used)} / {formatBytes(metrics?.disk?.total)}
           </div>
         </div>
+        <button
+          onClick={onAgentsClick}
+          className="bg-slate-800/60 border border-slate-700 rounded-lg p-2 text-left hover:border-purple-500/60 transition-colors"
+        >
+          <div className="text-[10px] text-slate-400 uppercase">Agents</div>
+          <div className="text-sm text-slate-200 font-semibold flex items-center gap-1">
+            <span>⚡</span>
+            {agentCount > 0 && (
+              <span className="bg-purple-600 text-white text-[10px] rounded-full px-1.5 py-0.5 leading-none">
+                {agentCount}
+              </span>
+            )}
+          </div>
+        </button>
       </div>
     </div>
   );
