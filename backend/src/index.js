@@ -586,7 +586,26 @@ app.get('/api/health', (req, res) => {
 
 // ─── Agents Store (Claude Code subagents) ───────────────────────────────────
 const agentsStore = [];
-let AGENT_TTL_MS = 5 * 60 * 1000; // default 5 min retention
+const AGENT_CONFIG_FILE = path.join('/tmp', 'agent-config.json');
+
+function loadAgentConfig() {
+  try {
+    if (fs.existsSync(AGENT_CONFIG_FILE)) {
+      const raw = fs.readFileSync(AGENT_CONFIG_FILE, 'utf8');
+      const cfg = JSON.parse(raw);
+      return cfg.retentionMs || 5 * 60 * 1000;
+    }
+  } catch {}
+  return 5 * 60 * 1000;
+}
+
+function saveAgentConfig(retentionMs) {
+  try {
+    fs.writeFileSync(AGENT_CONFIG_FILE, JSON.stringify({ retentionMs }), 'utf8');
+  } catch {}
+}
+
+let AGENT_TTL_MS = loadAgentConfig(); // persisted, default 5 min
 
 function cleanupAgents() {
   const now = Date.now();
@@ -617,6 +636,18 @@ app.post('/api/agents', (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/api/agents/config', (req, res) => {
+  res.json({ retentionMs: AGENT_TTL_MS });
+});
+
+app.put('/api/agents/config', (req, res) => {
+  const { retentionMs } = req.body;
+  if (!retentionMs || retentionMs < 60000) return res.status(400).json({ error: 'min 1 minute' });
+  AGENT_TTL_MS = retentionMs;
+  saveAgentConfig(AGENT_TTL_MS);
+  res.json({ success: true, retentionMs: AGENT_TTL_MS });
+});
+
 app.put('/api/agents/:id', (req, res) => {
   const agent = agentsStore.find(a => a.id === req.params.id);
   if (!agent) return res.status(404).json({ error: 'agent not found' });
@@ -626,17 +657,6 @@ app.put('/api/agents/:id', (req, res) => {
   if (error !== undefined) agent.error = error;
   agent.updatedAt = Date.now();
   res.json({ success: true });
-});
-
-app.get('/api/agents/config', (req, res) => {
-  res.json({ retentionMs: AGENT_TTL_MS });
-});
-
-app.put('/api/agents/config', (req, res) => {
-  const { retentionMs } = req.body;
-  if (!retentionMs || retentionMs < 60000) return res.status(400).json({ error: 'min 1 minute' });
-  AGENT_TTL_MS = retentionMs;
-  res.json({ success: true, retentionMs: AGENT_TTL_MS });
 });
 
 // ─── Health check ────────────────────────────────────────────────────────────
