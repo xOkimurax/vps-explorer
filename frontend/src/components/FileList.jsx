@@ -80,6 +80,11 @@ export default function FileList({
     }
     // En touch sin selección activa: tap directo abre/navega (manejado en handleTouchEnd)
     if (isTouchDevice()) return;
+    // Desktop: click simple en carpeta navega directamente
+    if (file.isDirectory) {
+      onNavigate(file.path);
+      return;
+    }
     // Desktop: ctrl/meta para multi-select
     if (e.ctrlKey || e.metaKey) {
       onSelect(prev => {
@@ -105,6 +110,8 @@ export default function FileList({
   };
 
   const handleTouchStart = (file, e) => {
+    // Solo aplicar long press en dispositivos táctiles (móvil), no en desktop
+    if (!isTouchDevice()) return;
     longPressTriggered.current = false;
     touchMoved.current = false;
     touchStartX.current = e.touches[0].clientX;
