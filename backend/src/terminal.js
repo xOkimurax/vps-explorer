@@ -1,8 +1,8 @@
 const http = require('http');
-const { spawn } = require('child_process');
+const pty = require('node-pty');
 const { WebSocketServer } = require('ws');
 
-let currentChild = null;
+let currentPty = null;
 let wsClient = null;
 
 function startTerminal(server) {
@@ -12,9 +12,9 @@ function startTerminal(server) {
     console.log('Terminal client connected');
     wsClient = ws;
 
-    if (currentChild) {
-      try { currentChild.kill(); } catch {}
-      currentChild = null;
+    if (currentPty) {
+      try { currentPty.kill(); } catch {}
+      currentPty = null;
     }
 
     const env = {
@@ -32,50 +32,46 @@ function startTerminal(server) {
       ANTHROPIC_MODEL: 'MiniMax-M2.7',
     };
 
-    // Spawn Claude directly with pipes - no PTY layer
-    // This avoids the musl/glibc exec issue inside Alpine container
-    currentChild = spawn('/host/root/.nvm/versions/node/v24.14.1/bin/claude', [], {
+    const claudePath = '/host/root/.nvm/versions/node/v24.14.1/lib/node_modules/@anthropic-ai/claude-code/cli.js';
+
+    // Spawn node directly with Claude's cli.js — no bash wrapper
+    currentPty = pty.spawn('node', [claudePath], {
+      name: 'xterm-256color',
       cwd: '/host/root',
       env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: false,
     });
 
-    console.log(`Claude spawned with PID: ${currentChild.pid}`);
+    console.log(`Claude PTY spawned with PID: ${currentPty.pid}`);
 
-    currentChild.stdout.on('data', (data) => {
+    currentPty.onData((data) => {
       if (wsClient && wsClient.readyState === 1) {
-        wsClient.send(data.toString());
+        wsClient.send(data);
       }
     });
 
-    currentChild.stderr.on('data', (data) => {
-      if (wsClient && wsClient.readyState === 1) {
-        wsClient.send(data.toString());
-      }
-    });
-
-    currentChild.on('exit', (code) => {
-      console.log(`Claude exited with code ${code}`);
+    currentPty.onExit((code) => {
+      console.log(`PTY exited with code ${code}`);
       if (wsClient && wsClient.readyState === 1) {
         wsClient.send(`\r\n[Sesión terminada]\r\n`);
         wsClient.close();
       }
-      currentChild = null;
+      currentPty = null;
       wsClient = null;
     });
 
     ws.on('message', (msg) => {
-      if (currentChild && currentChild.stdin.writable) {
-        currentChild.stdin.write(msg.toString());
+      if (currentPty) {
+        // Only convert bare \n to \r (Enter key), keep other newlines intact
+        const input = msg.toString().replace(/\r?\n/g, (match) => match === '\n' ? '\r' : match);
+        currentPty.write(input);
       }
     });
 
     ws.on('close', () => {
       console.log('Terminal client disconnected');
-      if (currentChild) {
-        try { currentChild.kill(); } catch {}
-        currentChild = null;
+      if (currentPty) {
+        try { currentPty.kill(); } catch {}
+        currentPty = null;
       }
       wsClient = null;
     });
