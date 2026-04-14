@@ -16,7 +16,9 @@
     "lucide-react": "^0.511.0",
     "@monaco-editor/react": "^4.6.0",
     "react-dropzone": "^14.2.3",
-    "axios": "^1.6.2"
+    "axios": "^1.6.2",
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

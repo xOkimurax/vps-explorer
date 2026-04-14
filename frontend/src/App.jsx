@@ -25,6 +25,7 @@ import {
   downloadUrl,
 } from './api/files';
 import { Menu } from 'lucide-react';
+import TerminalPanel from './components/Terminal';
 import './App.css';
 
 const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
@@ -373,6 +374,7 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
 export default function App() {
   const [sidebarPath, setSidebarPath] = useState('/');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [terminalVisible, setTerminalVisible] = useState(false);
   const panelRef = useRef(null);
 
   return (
@@ -395,6 +397,7 @@ export default function App() {
             setSidebarOpen(false);
           }}
           onToggle={() => setSidebarOpen(p => !p)}
+          onTerminalToggle={() => setTerminalVisible(p => !p)}
         />
       </div>
 
@@ -408,9 +411,17 @@ export default function App() {
             <Menu size={18} />
           </button>
         </div>
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden">
           <Panel ref={panelRef} initialPath="/" onPathChange={setSidebarPath} />
         </div>
+      </div>
+
+      {/* Terminal - fullscreen overlay */}
+      <div className={`fixed inset-0 z-[100] ${terminalVisible ? 'block' : 'hidden'}`}>
+        <TerminalPanel
+          visible={terminalVisible}
+          onClose={() => setTerminalVisible(false)}
+        />
       </div>
     </div>
   );

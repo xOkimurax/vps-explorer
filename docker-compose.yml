@@ -9,11 +9,18 @@ services:
     volumes:
       - /:/host:ro
       - /tmp:/tmp
+      - /root/.claude:/host/root/.claude:rw
     environment:
       - PORT=4001
       - NODE_ENV=production
       - HOST_ROOT=/host
+      - WHISPER_HOST=host.docker.internal
+      - WHISPER_PORT=9000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    networks:
+      - vpsnet
 
   frontend:
     build: ./frontend
@@ -22,4 +29,13 @@ services:
       - "4000:4000"
     depends_on:
       - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    networks:
+      - vpsnet
+
+networks:
+  vpsnet:
+    name: vps-explorer_default
+    external: true

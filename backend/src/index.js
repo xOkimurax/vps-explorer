@@ -6,7 +6,9 @@ const fsp = require('fs/promises');
 const multer = require('multer');
 const mime = require('mime-types');
 const os = require('os');
+const http = require('http');
 const { exec } = require('child_process');
+const { startTerminal } = require('./terminal');
 
 const app = express();
 const PORT = process.env.PORT || 4001;
@@ -584,86 +586,49 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', pid: process.pid, uptime: process.uptime() });
 });
 
-// ─── Agents Store (Claude Code subagents) ───────────────────────────────────
-const agentsStore = [];
-const AGENT_CONFIG_FILE = path.join('/tmp', 'agent-config.json');
-
-function loadAgentConfig() {
+// Proxy transcription to Groq API (bypasses mixed content, better quality)
+app.post('/api/transcribe', async (req, res) => {
   try {
-    if (fs.existsSync(AGENT_CONFIG_FILE)) {
-      const raw = fs.readFileSync(AGENT_CONFIG_FILE, 'utf8');
-      const cfg = JSON.parse(raw);
-      return cfg.retentionMs || 5 * 60 * 1000;
+    const audio_base64 = req.body.audio_base64;
+    const mimetype = req.body.mimetype || 'audio/webm';
+
+    if (!audio_base64) {
+      return res.status(400).json({ error: 'Missing audio_base64' });
     }
-  } catch {}
-  return 5 * 60 * 1000;
-}
 
-function saveAgentConfig(retentionMs) {
-  try {
-    fs.writeFileSync(AGENT_CONFIG_FILE, JSON.stringify({ retentionMs }), 'utf8');
-  } catch {}
-}
+    // Decode base64 and create buffer
+    const audioBuffer = Buffer.from(audio_base64, 'base64');
 
-let AGENT_TTL_MS = loadAgentConfig(); // persisted, default 5 min
+    // Create form data for Groq
+    const formData = new FormData();
+    const blob = new Blob([audioBuffer], { type: mimetype });
+    formData.append('file', blob, 'audio.webm');
+    formData.append('model', 'whisper-large-v3');
 
-function cleanupAgents() {
-  const now = Date.now();
-  for (let i = agentsStore.length - 1; i >= 0; i--) {
-    if (now - agentsStore[i].updatedAt > AGENT_TTL_MS) {
-      agentsStore.splice(i, 1);
+    const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY || 'GROQ_API_KEY_PLACEHOLDER'}`,
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      res.json({ text: data.text || '' });
+    } else {
+      res.status(response.status).json({ error: data.error?.message || 'Transcription failed' });
     }
+  } catch (err) {
+    console.error('Transcribe error:', err.message);
+    res.status(500).json({ error: err.message });
   }
-}
-setInterval(cleanupAgents, 30000);
-
-app.get('/api/agents', (req, res) => {
-  cleanupAgents();
-  res.json({ agents: agentsStore.map(a => ({ ...a })) });
 });
 
-app.post('/api/agents', (req, res) => {
-  const { id, description, status = 'running' } = req.body;
-  if (!id) return res.status(400).json({ error: 'id required' });
-  const existing = agentsStore.find(a => a.id === id);
-  if (existing) {
-    existing.updatedAt = Date.now();
-    if (description) existing.description = description;
-    if (status) existing.status = status;
-  } else {
-    agentsStore.push({ id, description: description || '', status, createdAt: Date.now(), updatedAt: Date.now() });
-  }
-  res.json({ success: true });
-});
+const server = http.createServer(app);
+startTerminal(server);
 
-app.get('/api/agents/config', (req, res) => {
-  res.json({ retentionMs: AGENT_TTL_MS });
-});
-
-app.put('/api/agents/config', (req, res) => {
-  const { retentionMs } = req.body;
-  if (!retentionMs || retentionMs < 60000) return res.status(400).json({ error: 'min 1 minute' });
-  AGENT_TTL_MS = retentionMs;
-  saveAgentConfig(AGENT_TTL_MS);
-  res.json({ success: true, retentionMs: AGENT_TTL_MS });
-});
-
-app.put('/api/agents/:id', (req, res) => {
-  const agent = agentsStore.find(a => a.id === req.params.id);
-  if (!agent) return res.status(404).json({ error: 'agent not found' });
-  const { status, result, error } = req.body;
-  if (status) agent.status = status;
-  if (result !== undefined) agent.result = result;
-  if (error !== undefined) agent.error = error;
-  agent.updatedAt = Date.now();
-  res.json({ success: true });
-});
-
-// ─── Health check ────────────────────────────────────────────────────────────
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', pid: process.pid, uptime: process.uptime() });
-});
-
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`VPS Explorer Backend running on port ${PORT}`);
 });

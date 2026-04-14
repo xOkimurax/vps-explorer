@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronRight, ChevronDown, Folder, FolderOpen, Star, StarOff, HardDrive, Home, Settings2, Menu } from 'lucide-react';
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Star, StarOff, HardDrive, Home, Settings2, Menu, Terminal } from 'lucide-react';
 import { getTree } from '../api/files';
 
 const BOOKMARKS_KEY = 'vps-explorer-bookmarks';
@@ -77,7 +77,7 @@ function TreeNode({ node, currentPath, onNavigate, depth = 0 }) {
   );
 }
 
-export default function Sidebar({ currentPath, onNavigate, onToggle }) {
+export default function Sidebar({ currentPath, onNavigate, onToggle, onTerminalToggle }) {
   const [bookmarks, setBookmarks] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem(BOOKMARKS_KEY)) || DEFAULT_BOOKMARKS;
@@ -156,6 +156,17 @@ export default function Sidebar({ currentPath, onNavigate, onToggle }) {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Claude Terminal */}
+        <div>
+          <button
+            onClick={onTerminalToggle}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded transition-colors bg-purple-600/20 hover:bg-purple-600/30 text-purple-300"
+          >
+            <Terminal size={16} className="text-purple-400" />
+            <span>Claude</span>
+          </button>
         </div>
 
         {/* Directory Tree */}
