@@ -244,7 +244,7 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <MetricsBar onRamClick={() => setShowProcesses(p => !p)} onAgentsClick={() => setShowProjects(p => !p)} agentCount={projectCount} />
+      <MetricsBar onRamClick={() => setShowProcesses(p => !p)} onProjectsClick={() => setShowProjects(p => !p)} agentCount={projectCount} />
       <ProcessList visible={showProcesses} />
       <ProjectList visible={showProjects} />
       <Toolbar
