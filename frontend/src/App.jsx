@@ -7,7 +7,7 @@ import StatusBar from './components/StatusBar';
 import SearchResults from './components/SearchResults';
 import MetricsBar from './components/MetricsBar';
 import ProcessList from './components/ProcessList';
-import AgentList from './components/AgentList';
+import ProjectList from './components/ProjectList';
 import {
   ConfirmModal,
   NewItemModal,
@@ -45,8 +45,7 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
   const [error, setError] = useState(null);
   const [dualPanel, setDualPanel] = useState(false);
   const [showProcesses, setShowProcesses] = useState(false);
-  const [showAgents, setShowAgents] = useState(false);
-  const [agentCount, setAgentCount] = useState(0);
+  const [showProjects, setShowProjects] = useState(false);
 
   const currentPath = history[historyIdx] || initialPath;
 
@@ -95,15 +94,17 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
   useEffect(() => {
     const fetchCount = async () => {
       try {
-        const res = await fetch('/api/agents');
+        const res = await fetch('/api/projects');
         const data = await res.json();
-        setAgentCount(data.agents?.length || 0);
+        setProjectCount(data.projects?.filter(p => p.status === 'running').length || 0);
       } catch {}
     };
     fetchCount();
-    const id = setInterval(fetchCount, 10000);
+    const id = setInterval(fetchCount, 30000);
     return () => clearInterval(id);
   }, []);
+
+  const [projectCount, setProjectCount] = useState(0);
 
   const handleSearch = async (q) => {
     if (!q) { setSearchQuery(''); setSearchResults(null); return; }
@@ -243,9 +244,9 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <MetricsBar onRamClick={() => setShowProcesses(p => !p)} onAgentsClick={() => setShowAgents(p => !p)} agentCount={agentCount} />
+      <MetricsBar onRamClick={() => setShowProcesses(p => !p)} onAgentsClick={() => setShowProjects(p => !p)} agentCount={projectCount} />
       <ProcessList visible={showProcesses} />
-      <AgentList visible={showAgents} />
+      <ProjectList visible={showProjects} />
       <Toolbar
         currentPath={currentPath}
         onNavigate={navigate}

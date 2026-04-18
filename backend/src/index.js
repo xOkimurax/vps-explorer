@@ -581,6 +581,135 @@ app.get('/api/tree', async (req, res) => {
   }
 });
 
+// GET /api/projects - list all projects with status
+// Scans docker containers + nginx configs + docker-compose files
+app.get('/api/projects', async (req, res) => {
+  try {
+    // Project registry: container name → project info
+    const PROJECT_MAP = {
+      'vps-explorer-backend': { name: 'VPS Explorer', url: 'https://vps.matias-automatization.online', port: 4001 },
+      'vps-explorer-frontend': { name: 'VPS Explorer Frontend', url: 'https://vps.matias-automatization.online', port: 4002, internal: true },
+      'n8n': { name: 'N8N', url: 'https://n8n.matias-automatization.online', port: 5678 },
+      'evolution-api': { name: 'Evolution API', url: 'https://evolution.matias-automatization.online', port: 8080 },
+      'audio-transcribe-api': { name: 'Audio Transcriber', url: 'http://localhost:3001', port: 3001 },
+      'alba-catalogo': { name: 'Alba Catálogo', url: 'http://localhost:3002', port: 3002 },
+      'ticket-ads': { name: 'Ticket Ads', url: 'http://localhost:3003', port: 3003 },
+      'insf-vps-insforge-1': { name: 'InsForge', url: 'http://localhost:3004', port: 3004 },
+      'insf-vps-postgres-1': { name: 'InsForge DB', type: 'database', internal: true },
+      'insf-vps-vector-1': { name: 'InsForge Vector', type: 'database', internal: true },
+      'insf-vps-deno-1': { name: 'InsForge Deno', type: 'api', internal: true },
+      'insf-vps-postgrest-1': { name: 'InsForge PostgREST', type: 'api', internal: true },
+      'postgres': { name: 'PostgreSQL', type: 'database', internal: true },
+      'zen_raman': { name: 'Zen Raman', url: 'http://localhost:3005', port: 3005 },
+    };
+
+    // Run docker ps to get running containers
+    const dockerPs = () => new Promise((resolve, reject) => {
+      exec('docker ps --format "{{.Names}}\t{{.Status}}"', { timeout: 10000 }, (err, stdout) => {
+        if (err) return reject(err);
+        resolve(stdout.trim());
+      });
+    });
+
+    // Check HTTP status for a URL
+    const checkUrl = (url) => new Promise((resolve) => {
+      const timeoutMs = 5000;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      
+      fetch(url, { signal: controller.signal, redirect: 'follow' })
+        .then(resp => {
+          clearTimeout(timer);
+          resolve({ code: resp.status, ok: resp.ok });
+        })
+        .catch(() => {
+          clearTimeout(timer);
+          resolve({ code: 0, ok: false, error: 'unreachable' });
+        });
+    });
+
+    // Parse docker ps output
+    const dockerOutput = await dockerPs();
+    const lines = dockerOutput.split('\n').filter(l => l.trim());
+    
+    const projects = [];
+    const seen = new Set();
+
+    for (const line of lines) {
+      const [name, ...statusParts] = line.split('\t');
+      const status = statusParts.join('\t').toLowerCase();
+      
+      // Skip if not a recognized project container
+      if (!PROJECT_MAP[name]) continue;
+      if (seen.has(name)) continue;
+      seen.add(name);
+
+      const info = PROJECT_MAP[name];
+      
+      // Skip internal-only projects unless explicitly requested
+      if (info.internal && !req.query.includeInternal) continue;
+
+      const project = {
+        name: info.name,
+        container: name,
+        status: status.includes('up') ? 'running' : status.includes('exited') ? 'stopped' : 'unknown',
+        type: info.type || 'application',
+        internal: info.internal || false,
+        url: null,
+        httpCode: null,
+        httpOk: null,
+        lastChecked: new Date().toISOString(),
+      };
+
+      // Check HTTP if URL available
+      if (info.url) {
+        const httpResult = await checkUrl(info.url);
+        project.url = info.url;
+        project.httpCode = httpResult.code;
+        project.httpOk = httpResult.ok;
+      }
+
+      projects.push(project);
+    }
+
+    // Sort: running first, then by name
+    projects.sort((a, b) => {
+      if (a.status === 'running' && b.status !== 'running') return -1;
+      if (a.status !== 'running' && b.status === 'running') return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    res.json({
+      projects,
+      total: projects.length,
+      running: projects.filter(p => p.status === 'running').length,
+      checked: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('/api/projects error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Agents API (mock - for OpenClaw integration)
+let agentConfig = { retentionMs: 3600000 }; // 1 hour default
+
+app.get('/api/agents', (req, res) => {
+  // Return empty agents list - actual agents managed by OpenClaw
+  res.json({ agents: [] });
+});
+
+app.get('/api/agents/config', (req, res) => {
+  res.json(agentConfig);
+});
+
+app.put('/api/agents/config', (req, res) => {
+  if (req.body.retentionMs) {
+    agentConfig.retentionMs = req.body.retentionMs;
+  }
+  res.json(agentConfig);
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', pid: process.pid, uptime: process.uptime() });

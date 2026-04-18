@@ -1,6 +1,6 @@
 FROM node:20-alpine
 
-RUN apk add --no-cache bash util-linux python3 make g++ python3-dev linux-headers
+RUN apk add --no-cache bash util-linux python3 make g++ python3-dev linux-headers expect openssh-client sshpass
 
 WORKDIR /app
 

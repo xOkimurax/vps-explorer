@@ -12,7 +12,7 @@ function formatBytes(bytes) {
   return `${val.toFixed(1)} ${units[idx]}`;
 }
 
-export default function MetricsBar({ onRamClick, onAgentsClick, agentCount = 0 }) {
+export default function MetricsBar({ onRamClick, onProjectsClick, agentCount = 0 }) {
   const [metrics, setMetrics] = useState(null);
   const [error, setError] = useState(null);
 
@@ -69,10 +69,10 @@ export default function MetricsBar({ onRamClick, onAgentsClick, agentCount = 0 }
           </div>
         </div>
         <button
-          onClick={onAgentsClick}
+          onClick={onProjectsClick}
           className="bg-slate-800/60 border border-slate-700 rounded-lg p-2 text-left hover:border-purple-500/60 transition-colors"
         >
-          <div className="text-[10px] text-slate-400 uppercase">Agents</div>
+          <div className="text-[10px] text-slate-400 uppercase">Projects</div>
           <div className="text-sm text-slate-200 font-semibold flex items-center gap-1">
             <span>⚡</span>
             {agentCount > 0 && (

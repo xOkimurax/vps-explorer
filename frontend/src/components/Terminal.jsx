@@ -28,6 +28,9 @@ export default function ClaudeTerminal({ visible, onClose }) {
 
     sessionIdRef.current += 1;
     const currentSession = sessionIdRef.current;
+    let reconnectAttempts = 0;
+    let reconnectTimeout = null;
+    let ws = null;
 
     console.log('[Terminal] Creating terminal, session:', currentSession);
 
@@ -61,38 +64,51 @@ export default function ClaudeTerminal({ visible, onClose }) {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/terminal`;
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    function connect() {
+      ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      if (currentSession !== sessionIdRef.current) return;
-      term.writeln('\x1b[32mConectado al servidor WebSocket\x1b[0m');
-      setConnected(true);
-      term.focus();
-      setTimeout(() => { try { fitAddon.fit(); term.focus(); } catch {} }, 100);
-    };
+      ws.onopen = () => {
+        if (currentSession !== sessionIdRef.current) { ws.close(); return; }
+        reconnectAttempts = 0;
+        term.writeln('\x1b[32mConectado al servidor WebSocket\x1b[0m');
+        setConnected(true);
+        term.focus();
+        setTimeout(() => { try { fitAddon.fit(); term.focus(); } catch {} }, 100);
+      };
 
-    ws.onmessage = (event) => {
-      if (currentSession !== sessionIdRef.current) return;
-      term.write(event.data);
-    };
+      ws.onmessage = (event) => {
+        if (currentSession !== sessionIdRef.current) return;
+        term.write(event.data);
+      };
 
-    ws.onclose = () => {
-      if (currentSession !== sessionIdRef.current) return;
-      term.writeln('\x1b[33mConexión cerrada\x1b[0m');
-      setConnected(false);
-    };
+      ws.onclose = () => {
+        if (currentSession !== sessionIdRef.current) return;
+        setConnected(false);
+        // Reconnection logic with exponential backoff
+        if (reconnectAttempts < 5) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 15000);
+          reconnectAttempts++;
+          term.writeln(`\x1b[33mConexión perdida. Reconectando en ${delay/1000}s... (intento ${reconnectAttempts})\x1b[0m`);
+          reconnectTimeout = setTimeout(connect, delay);
+        } else {
+          term.writeln('\x1b[31mConexión cerrada. Recarga la página para reconectar.\x1b[0m');
+        }
+      };
 
-    ws.onerror = () => {
-      if (currentSession !== sessionIdRef.current) return;
-      term.writeln('\x1b[31mError de conexión\x1b[0m');
-    };
+      ws.onerror = () => {
+        if (currentSession !== sessionIdRef.current) return;
+        term.writeln('\x1b[31mError de conexión\x1b[0m');
+      };
 
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(data);
-      }
-    });
+      term.onData((data) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(data);
+        }
+      });
+    }
+
+    connect();
 
     const handleResize = () => {
       setTimeout(() => { try { fitAddon.fit(); } catch {} }, 100);
@@ -102,8 +118,10 @@ export default function ClaudeTerminal({ visible, onClose }) {
     return () => {
       console.log('[Terminal] Cleanup running, session:', currentSession);
       window.removeEventListener('resize', handleResize);
-      if (wsRef.current) {
-        wsRef.current.close();
+      clearTimeout(reconnectTimeout);
+      if (ws) {
+        ws.onclose = null; // Prevent reconnect loop during cleanup
+        ws.close();
       }
       if (xtermRef.current) {
         xtermRef.current.dispose();
