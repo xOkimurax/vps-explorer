@@ -582,36 +582,33 @@ app.get('/api/tree', async (req, res) => {
 });
 
 // GET /api/projects - list all projects with status
-// Scans docker containers + nginx configs + docker-compose files
+// Polls known service URLs to determine what's running and healthy
 app.get('/api/projects', async (req, res) => {
   try {
-    // Project registry: container name → project info
-    const PROJECT_MAP = {
-      'vps-explorer-backend': { name: 'VPS Explorer', url: 'https://vps.matias-automatization.online', port: 4001 },
-      'vps-explorer-frontend': { name: 'VPS Explorer Frontend', url: 'https://vps.matias-automatization.online', port: 4002, internal: true },
-      'n8n': { name: 'N8N', url: 'https://n8n.matias-automatization.online', port: 5678 },
-      'evolution-api': { name: 'Evolution API', url: 'https://evolution.matias-automatization.online', port: 8080 },
-      'audio-transcribe-api': { name: 'Audio Transcriber', url: 'http://localhost:3001', port: 3001 },
-      'alba-catalogo': { name: 'Alba Catálogo', url: 'http://localhost:3002', port: 3002 },
-      'ticket-ads': { name: 'Ticket Ads', url: 'http://localhost:3003', port: 3003 },
-      'insf-vps-insforge-1': { name: 'InsForge', url: 'http://localhost:3004', port: 3004 },
-      'insf-vps-postgres-1': { name: 'InsForge DB', type: 'database', internal: true },
-      'insf-vps-vector-1': { name: 'InsForge Vector', type: 'database', internal: true },
-      'insf-vps-deno-1': { name: 'InsForge Deno', type: 'api', internal: true },
-      'insf-vps-postgrest-1': { name: 'InsForge PostgREST', type: 'api', internal: true },
-      'postgres': { name: 'PostgreSQL', type: 'database', internal: true },
-      'zen_raman': { name: 'Zen Raman', url: 'http://localhost:3005', port: 3005 },
-    };
+    // Project registry: name, URL (from inside container), container name, port
+    const PROJECTS = [
+      // Public-facing services (accessible via public URL)
+      { name: 'VPS Explorer', url: 'https://vps.matias-automatization.online/api/health', container: 'vps-explorer-backend', port: 4001 },
+      { name: 'N8N', url: 'https://n8n.matias-automatization.online', container: 'n8n', port: 5678 },
+      { name: 'Evolution API', url: 'https://evolution.matias-automatization.online', container: 'evolution-api', port: 8080 },
+      // Internal services (from inside Docker network via container name)
+      { name: 'Alba Catálogo', url: 'http://alba-catalogo', container: 'alba-catalogo', internal: true },
+      { name: 'Ticket Ads', url: 'http://ticket-ads', container: 'ticket-ads', internal: true },
+      { name: 'Audio Transcriber', url: 'http://audio-transcribe-api:3001/health', container: 'audio-transcribe-api', internal: true },
+      { name: 'Zen Raman', url: 'http://zen_raman:4001', container: 'zen_raman', internal: true },
+      // InsForge stack
+      { name: 'InsForge', url: 'http://insf-vps-insforge-1:7130', container: 'insf-vps-insforge-1', internal: true },
+      { name: 'InsForge DB', container: 'insf-vps-postgres-1', type: 'database', internal: true },
+      { name: 'InsForge PostgREST', url: 'http://insf-vps-postgrest-1:3000', container: 'insf-vps-postgrest-1', type: 'api', internal: true },
+      { name: 'InsForge Deno', url: 'http://insf-vps-deno-1:7133', container: 'insf-vps-deno-1', type: 'api', internal: true },
+      { name: 'PostgreSQL', container: 'postgres', type: 'database', internal: true },
+    ];
 
-    // Run docker ps to get running containers
-    const dockerPs = () => new Promise((resolve, reject) => {
-      exec('docker ps --format "{{.Names}}\t{{.Status}}"', { timeout: 10000 }, (err, stdout) => {
-        if (err) return reject(err);
-        resolve(stdout.trim());
-      });
-    });
+    // Show internal only if requested
+    const showInternal = req.query.includeInternal === 'true';
+    const visible = showInternal ? PROJECTS : PROJECTS.filter(p => !p.internal);
 
-    // Check HTTP status for a URL
+    // Check HTTP with timeout - handles both public URLs and internal Docker network URLs
     const checkUrl = (url) => new Promise((resolve) => {
       const timeoutMs = 5000;
       const controller = new AbortController();
@@ -624,58 +621,49 @@ app.get('/api/projects', async (req, res) => {
         })
         .catch(() => {
           clearTimeout(timer);
-          resolve({ code: 0, ok: false, error: 'unreachable' });
+          resolve({ code: 0, ok: false });
         });
     });
 
-    // Parse docker ps output
-    const dockerOutput = await dockerPs();
-    const lines = dockerOutput.split('\n').filter(l => l.trim());
-    
-    const projects = [];
-    const seen = new Set();
+    const projects = await Promise.all(
+      visible.map(async (p) => {
+        let httpCode = null;
+        let httpOk = null;
+        let status = 'stopped';
 
-    for (const line of lines) {
-      const [name, ...statusParts] = line.split('\t');
-      const status = statusParts.join('\t').toLowerCase();
-      
-      // Skip if not a recognized project container
-      if (!PROJECT_MAP[name]) continue;
-      if (seen.has(name)) continue;
-      seen.add(name);
+        if (p.url) {
+          try {
+            const result = await checkUrl(p.url);
+            httpCode = result.code;
+            httpOk = result.ok;
+            status = result.ok ? 'running' : 'degraded';
+          } catch {
+            status = 'stopped';
+          }
+        } else if (p.container) {
+          // No URL means we just show as "registered" - container running check would need docker socket
+          status = 'registered';
+        }
 
-      const info = PROJECT_MAP[name];
-      
-      // Skip internal-only projects unless explicitly requested
-      if (info.internal && !req.query.includeInternal) continue;
+        return {
+          name: p.name,
+          container: p.container || null,
+          status,
+          type: p.type || 'application',
+          internal: p.internal || false,
+          url: p.url || null,
+          httpCode,
+          httpOk,
+          lastChecked: new Date().toISOString(),
+        };
+      })
+    );
 
-      const project = {
-        name: info.name,
-        container: name,
-        status: status.includes('up') ? 'running' : status.includes('exited') ? 'stopped' : 'unknown',
-        type: info.type || 'application',
-        internal: info.internal || false,
-        url: null,
-        httpCode: null,
-        httpOk: null,
-        lastChecked: new Date().toISOString(),
-      };
-
-      // Check HTTP if URL available
-      if (info.url) {
-        const httpResult = await checkUrl(info.url);
-        project.url = info.url;
-        project.httpCode = httpResult.code;
-        project.httpOk = httpResult.ok;
-      }
-
-      projects.push(project);
-    }
-
-    // Sort: running first, then by name
+    // Sort: running first, then degraded, then stopped, then by name
+    const STATUS_ORDER = { running: 0, registered: 1, degraded: 2, stopped: 3, unknown: 4 };
     projects.sort((a, b) => {
-      if (a.status === 'running' && b.status !== 'running') return -1;
-      if (a.status !== 'running' && b.status === 'running') return 1;
+      const orderDiff = (STATUS_ORDER[a.status] || 4) - (STATUS_ORDER[b.status] || 4);
+      if (orderDiff !== 0) return orderDiff;
       return a.name.localeCompare(b.name);
     });
 
