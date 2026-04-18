@@ -586,9 +586,9 @@ app.get('/api/tree', async (req, res) => {
 app.get('/api/projects', async (req, res) => {
   try {
     // Project registry: name, URL (from inside container), container name, port
+    // NOTE: VPS Explorer itself is the tool - don't list it as a monitored service
     const PROJECTS = [
       // Public-facing services (accessible via public URL)
-      { name: 'VPS Explorer', url: 'https://vps.matias-automatization.online/api/health', container: 'vps-explorer-backend', port: 4001 },
       { name: 'N8N', url: 'https://n8n.matias-automatization.online', container: 'n8n', port: 5678 },
       { name: 'Evolution API', url: 'https://evolution.matias-automatization.online', container: 'evolution-api', port: 8080 },
       // Internal services (from inside Docker network via container name)
