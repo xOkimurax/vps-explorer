@@ -97,7 +97,7 @@ export default function ProjectList({ visible }) {
             }`}
             title="Mostrar proyectos internos"
           >
-            ⚡{showInternal ? '' : '-'}
+            {showInternal ? '✓' : '-'}
           </button>
           <button
             onClick={fetchProjects}
@@ -135,7 +135,7 @@ export default function ProjectList({ visible }) {
                   </td>
                   <td className="px-3 py-2">
                     <div className="text-slate-200 font-medium">{p.name}</div>
-                    {p.internal && <span className="text-[10px] text-purple-400">⚡ interno</span>}
+                    {p.internal && <span className="text-[10px] text-purple-400">interno</span>}
                   </td>
                   <td className="px-3 py-2">
                     {p.url ? (
