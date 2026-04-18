@@ -74,7 +74,6 @@ export default function MetricsBar({ onRamClick, onProjectsClick, agentCount = 0
         >
           <div className="text-[10px] text-slate-400 uppercase">Projects</div>
           <div className="text-sm text-slate-200 font-semibold flex items-center gap-1">
-            <span>⚡</span>
             {agentCount > 0 && (
               <span className="bg-purple-600 text-white text-[10px] rounded-full px-1.5 py-0.5 leading-none">
                 {agentCount}
