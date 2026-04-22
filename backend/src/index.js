@@ -50,6 +50,9 @@ function stripHostRoot(p) {
 }
 
 let prevCpuSnapshot = os.cpus();
+let prevTotalTicks = null;
+let prevProcessTicks = {}; // { pid: { utime, stime } }
+
 function getCpuUsagePercent() {
   const cpus = os.cpus();
   const totals = cpus.map((c, i) => {
@@ -67,6 +70,14 @@ function getCpuUsagePercent() {
   const idleDelta = totals.reduce((a, b) => a + b.idleDelta, 0);
   if (totalDelta === 0) return 0;
   return Math.round((1 - idleDelta / totalDelta) * 100);
+}
+
+function getTotalCpuTicks() {
+  const cpus = os.cpus();
+  return cpus.reduce((sum, c) => {
+    const t = c.times;
+    return sum + t.user + t.nice + t.system + t.idle + t.iowait + t.irq + t.softirq + t.steal;
+  }, 0);
 }
 
 function getRamUsage() {
@@ -123,24 +134,54 @@ async function getHostMemTotalKB() {
 async function getProcesses() {
   const totalKB = await getHostMemTotalKB();
   const hostProc = fs.existsSync('/host/proc') ? '/host/proc' : null;
+  const CLK_TCK = 100; // or discover via `getconf CLK_TCK`
 
   if (hostProc) {
     const entries = await fsp.readdir(hostProc);
     const pids = entries.filter(e => /^\d+$/.test(e));
     const processes = [];
+    const now = Date.now();
+
     for (const pid of pids) {
       try {
         const status = await fsp.readFile(path.join(hostProc, pid, 'status'), 'utf8');
+        const stat = await fsp.readFile(path.join(hostProc, pid, 'stat'), 'utf8');
+
         const nameLine = status.split('\n').find(l => l.startsWith('Name:')) || '';
         const rssLine = status.split('\n').find(l => l.startsWith('VmRSS:')) || '';
         const name = nameLine.split(/\s+/)[1] || 'unknown';
         const rssKB = parseInt(rssLine.replace(/[^0-9]/g, ''), 10);
         if (isNaN(rssKB)) continue;
+
+        // Parse utime/stime from /proc/PID/stat (field 14 and 15)
+        // stat format: pid (comm) state ppid pgrp session tty_nr ...
+        const statParts = stat.split(' ');
+        // comm is in parentheses and may contain spaces, find the last ')' to split cleanly
+        const lastParen = stat.lastIndexOf(')');
+        const afterComm = stat.slice(lastParen + 2); // skip ") "
+        const fields = afterComm.split(' ').filter(Boolean);
+        // fields[0]=state, fields[1]=ppid, fields[2]=pgrp... fields[11]=utime, fields[12]=stime
+        const utime = parseInt(fields[11], 10) || 0;
+        const stime = parseInt(fields[12], 10) || 0;
+        const totalTicks = utime + stime;
+
+        const prev = prevProcessTicks[pid];
+        let cpuPercent = 0;
+        if (prev) {
+          const tickDelta = totalTicks - prev.totalTicks;
+          const timeDeltaMs = now - prev.timestamp;
+          if (timeDeltaMs > 0) {
+            cpuPercent = Math.round((tickDelta / CLK_TCK) / (timeDeltaMs / 1000) * 100 * 10) / 10;
+          }
+        }
+        prevProcessTicks[pid] = { totalTicks, timestamp: now };
+
         const memPercent = Math.round((rssKB / totalKB) * 1000) / 10;
         processes.push({
           pid,
           command: name,
           memPercent,
+          cpuPercent,
           rssMB: Math.round(rssKB / 1024),
         });
       } catch {}
@@ -149,7 +190,7 @@ async function getProcesses() {
   }
 
   return new Promise((resolve, reject) => {
-    exec('ps -o pid,comm,rss,vsz', (err, stdout) => {
+    exec('ps -o pid,comm,rss,vsz,%cpu', (err, stdout) => {
       if (err) return reject(err);
       const lines = stdout.trim().split('\n').slice(1);
       const processes = lines.map(line => {
@@ -157,11 +198,13 @@ async function getProcesses() {
         const pid = parts[0];
         const rssKB = parseInt(parts[2], 10);
         const vszKB = parseInt(parts[3], 10);
+        const cpuPercent = parseFloat(parts[4]) || 0;
         const memPercent = isNaN(rssKB) ? 0 : Math.round((rssKB / totalKB) * 1000) / 10;
         return {
           pid,
           command: parts[1],
           memPercent,
+          cpuPercent,
           rssMB: isNaN(rssKB) ? 0 : Math.round(rssKB / 1024),
           vszMB: isNaN(vszKB) ? 0 : Math.round(vszKB / 1024),
         };
@@ -582,38 +625,109 @@ app.get('/api/tree', async (req, res) => {
 });
 
 // GET /api/projects - list all projects with status
-// Polls known service URLs to determine what's running and healthy
+// Auto-scans all Docker containers + reads Cloudflare Tunnel config for public URLs
 app.get('/api/projects', async (req, res) => {
   try {
-    // Project registry: name, URL (from inside container), container name, port
-    // NOTE: VPS Explorer itself is the tool - don't list it as a monitored service
-    const PROJECTS = [
-      // Public-facing services (accessible via public URL)
-      { name: 'N8N', url: 'https://n8n.matias-automatization.online', container: 'n8n', port: 5678 },
-      { name: 'Evolution API', url: 'https://evolution.matias-automatization.online', container: 'evolution-api', port: 8080 },
-      // Internal services (from inside Docker network via container name)
-      { name: 'Alba Catálogo', url: 'http://alba-catalogo', container: 'alba-catalogo', internal: true },
-      { name: 'Ticket Ads', url: 'http://ticket-ads', container: 'ticket-ads', internal: true },
-      { name: 'Audio Transcriber', url: 'http://audio-transcribe-api:3001/health', container: 'audio-transcribe-api', internal: true },
-      { name: 'Zen Raman', url: 'http://zen_raman:4001', container: 'zen_raman', internal: true },
-      // InsForge stack
-      { name: 'InsForge', url: 'http://insf-vps-insforge-1:7130', container: 'insf-vps-insforge-1', internal: true },
-      { name: 'InsForge DB', container: 'insf-vps-postgres-1', type: 'database', internal: true },
-      { name: 'InsForge PostgREST', url: 'http://insf-vps-postgrest-1:3000', container: 'insf-vps-postgrest-1', type: 'api', internal: true },
-      { name: 'InsForge Deno', url: 'http://insf-vps-deno-1:7133', container: 'insf-vps-deno-1', type: 'api', internal: true },
-      { name: 'PostgreSQL', container: 'postgres', type: 'database', internal: true },
-    ];
+    // Read Cloudflare Tunnel config to get public URL mappings
+    // Must SSH to host since we're running inside a container with /host mounted
+    const readTunnelConfig = () => new Promise((resolve) => {
+      const cmd = `sshpass -p 'matias12' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@217.76.59.68 "cat /root/.cloudflared/config.yml 2>/dev/null"`;
+      exec(cmd, { timeout: 10000 }, (err, stdout) => {
+        if (err) {
+          console.error('Tunnel config read failed:', err.message);
+          return resolve({ mappings: {}, portToHostname: {} });
+        }
+        // Parse ingress rules: hostname → port
+        const lines = stdout.split('\n');
+        const mappings = {};
+        const portToHostname = {};
+        let currentHost = null;
+        for (const line of lines) {
+          const hostMatch = line.match(/^\s+-\s+hostname:\s+(.+)$/);
+          const svcMatch = line.match(/^\s+service:\s+http:\/\/(?:localhost|127\.0\.0\.1):(\d+)/);
+          if (hostMatch) currentHost = hostMatch[1];
+          if (svcMatch && currentHost) {
+            const internalPort = parseInt(svcMatch[1]);
+            const subdomain = currentHost.split('.')[0];
+            mappings[currentHost] = internalPort;
+            mappings[subdomain] = internalPort;
+            portToHostname[internalPort] = currentHost;
+            currentHost = null;
+          }
+        }
+        console.log('Tunnel mappings:', JSON.stringify(mappings));
+        console.log('Port→Hostname:', JSON.stringify(portToHostname));
+        resolve({ mappings, portToHostname });
+      });
+    });
 
-    // Show internal only if requested
-    const showInternal = req.query.includeInternal === 'true';
-    const visible = showInternal ? PROJECTS : PROJECTS.filter(p => !p.internal);
+    // Registry: maps container name to { name, port, type, internal, subdomain }
+    // subdomain = the part before .matias-automatization.online in cloudflare config
+    const REGISTRY = {
+      'vps-explorer-backend':   { name: 'VPS Explorer API', subdomain: null, port: 4001, internal: false },
+      'vps-explorer-frontend': { name: 'VPS Explorer',    subdomain: 'vps-explorer', internal: false },
+      'n8n':                    { name: 'N8N',             subdomain: 'n8n',         internal: false },
+      'evolution-api':           { name: 'Evolution API',   subdomain: 'evo',         internal: false },
+      'deploy':                  { name: 'Deploy Panel',    subdomain: 'deploy',       internal: false },
+      'alba-catalogo':           { name: 'Alba Catálogo',   port: 4400, internal: true },
+      'ticket-ads':              { name: 'Ticket Ads',      port: 4300, internal: true },
+      'audio-transcribe-api':    { name: 'Audio Transcriber', port: 3002, internal: true },
+      'zen_raman':               { name: 'Zen Raman',       port: 4001, internal: true },
+      'insf-vps-insforge-1':     { name: 'InsForge',        subdomain: 'insf-vps', port: 7130, internal: true },
+      'insf-vps-postgres-1':     { name: 'InsForge DB',     type: 'database', internal: true },
+      'insf-vps-postgrest-1':    { name: 'InsForge PostgREST', port: 5430, type: 'api', internal: true },
+      'insf-vps-deno-1':         { name: 'InsForge Deno',   port: 7133, type: 'api', internal: true },
+      'insf-vps-vector-1':       { name: 'InsForge Vector', type: 'database', internal: true },
+      'postgres':                { name: 'PostgreSQL',      type: 'database', internal: true },
+    };
 
-    // Check HTTP with timeout - handles both public URLs and internal Docker network URLs
-    const checkUrl = (url) => new Promise((resolve) => {
-      const timeoutMs = 5000;
+    // Run docker ps on the host via SSH
+    const runHostCommand = (cmd) => new Promise((resolve, reject) => {
+      exec(`sshpass -p 'matias12' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@217.76.59.68 "${cmd.replace(/"/g, '\\"')}"`, { timeout: 15000 }, (err, stdout, stderr) => {
+        if (err) return reject(err);
+        resolve(stdout.trim());
+      });
+    });
+
+    // Enhanced URL detection
+    const detectUrl = (container, info, tunnelMappings, portToHostname) => {
+      // 1. Explicit subdomain from REGISTRY
+      if (info.subdomain && tunnelMappings[info.subdomain]) {
+        return { url: `https://${info.subdomain}.matias-automatization.online`, detectedAs: 'subdomain' };
+      }
+      // 2. Port match via reverse index (info.port matches a tunnel hostname)
+      if (info.port && portToHostname[info.port]) {
+        return { url: `https://${portToHostname[info.port]}`, detectedAs: 'port-match' };
+      }
+      // 3. Try tunnel hostname for the REGISTRY port
+      if (info.port) {
+        const matchedHost = Object.keys(tunnelMappings).find(k =>
+          tunnelMappings[k] === info.port && k.includes('.')
+        );
+        if (matchedHost) {
+          return { url: `https://${matchedHost}`, detectedAs: 'port-fallback' };
+        }
+      }
+      // 4. Fallback to localhost
+      if (info.port) {
+        return { url: `http://localhost:${info.port}`, detectedAs: 'localhost' };
+      }
+      // 5. Public port match for containers without REGISTRY entry
+      if (container.publicPort) {
+        const matchedHost = Object.keys(tunnelMappings).find(k =>
+          tunnelMappings[k] === container.publicPort && k.includes('.')
+        );
+        if (matchedHost) {
+          return { url: `https://${matchedHost}`, detectedAs: 'public-port' };
+        }
+      }
+      return { url: null, detectedAs: null };
+    };
+
+    // Health check with timeout
+    const healthCheck = (url) => new Promise((resolve) => {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      
+      const timer = setTimeout(() => controller.abort(), 5000);
       fetch(url, { signal: controller.signal, redirect: 'follow' })
         .then(resp => {
           clearTimeout(timer);
@@ -625,42 +739,92 @@ app.get('/api/projects', async (req, res) => {
         });
     });
 
-    const projects = await Promise.all(
-      visible.map(async (p) => {
-        let httpCode = null;
-        let httpOk = null;
-        let status = 'stopped';
+    // Check container with parallel health checks for internal containers
+    const checkContainer = async (info, url, detectedAs) => {
+      // For non-internal or subdomain/port-match, single check suffices
+      if (!info.internal || detectedAs === 'subdomain' || detectedAs === 'port-match') {
+        const result = await healthCheck(url);
+        return {
+          httpCode: result.code,
+          httpOk: result.ok,
+          status: result.ok ? 'running' : (result.code > 0 ? 'degraded' : 'stopped'),
+          url,
+          internal: info.internal !== false
+        };
+      }
 
-        if (p.url) {
-          try {
-            const result = await checkUrl(p.url);
-            httpCode = result.code;
-            httpOk = result.ok;
-            status = result.ok ? 'running' : 'degraded';
-          } catch {
-            status = 'stopped';
-          }
-        } else if (p.container) {
-          // No URL means we just show as "registered" - container running check would need docker socket
-          status = 'registered';
-        }
+      // For internal containers with localhost fallback, check both in parallel
+      const localhostUrl = `http://localhost:${info.port}`;
+      const [localhostResult, tunnelResult] = await Promise.all([
+        healthCheck(localhostUrl),
+        healthCheck(url)
+      ]);
+
+      if (localhostResult.ok && tunnelResult.ok) {
+        return { httpCode: tunnelResult.code, httpOk: true, status: 'running', url, internal: true };
+      } else if (localhostResult.ok && !tunnelResult.ok) {
+        return { httpCode: localhostResult.code, httpOk: localhostResult.ok, status: localhostResult.ok ? 'running' : 'degraded', url: localhostUrl, internal: true };
+      } else if (!localhostResult.ok && tunnelResult.ok) {
+        // Isolated network - only tunnel works
+        return { httpCode: tunnelResult.code, httpOk: true, status: 'running', url, internal: false };
+      } else {
+        return { httpCode: 0, httpOk: false, status: 'stopped', url: localhostUrl, internal: info.internal !== false };
+      }
+    };
+
+    // Get tunnel config for URL auto-mapping
+    const { mappings: tunnelMappings, portToHostname } = await readTunnelConfig();
+
+    // Scan all Docker containers via host SSH
+    let containers = [];
+    try {
+      const output = await runHostCommand('docker ps --format "{{.Names}}|{{.Status}}|{{.Ports}}"');
+      const lines = output.split('\n').filter(l => l.trim());
+      containers = lines.map(line => {
+        const parts = line.split('|');
+        const portsStr = parts[2] || '';
+        // Extract first mapped port (e.g. "4000->4001" → 4000, or "4001" → 4001)
+        const portMatch = portsStr.match(/(\d+)->/);
+        const plainPort = portsStr.match(/^(\d+)\//);
+        const publicPort = portMatch ? parseInt(portMatch[1]) : (plainPort ? parseInt(plainPort[1]) : null);
+        return { name: parts[0] || '', status: parts[1] || '', ports: portsStr, publicPort };
+      });
+    } catch (err) {
+      console.error('Docker scan failed:', err.message);
+    }
+
+    // Build project list with HTTP checks in parallel
+    const projects = await Promise.all(
+      containers.map(async (c) => {
+        const info = REGISTRY[c.name] || {};
+        const { url, detectedAs } = detectUrl(c, info, tunnelMappings, portToHostname);
+
+        const health = url ? await checkContainer(info, url, detectedAs) : {
+          httpCode: null,
+          httpOk: null,
+          status: c.status.toLowerCase().includes('up') ? 'configured' : 'stopped',
+          url: null,
+          internal: info.internal !== false
+        };
 
         return {
-          name: p.name,
-          container: p.container || null,
-          status,
-          type: p.type || 'application',
-          internal: p.internal || false,
-          url: p.url || null,
-          httpCode,
-          httpOk,
+          name: info.name || c.name,
+          container: c.name,
+          status: health.status,
+          type: info.type || 'application',
+          internal: health.internal,
+          url: health.url,
+          httpCode: health.httpCode,
+          httpOk: health.httpOk,
+          ports: c.ports,
+          registry: !!info.name,
           lastChecked: new Date().toISOString(),
         };
       })
     );
 
-    // Sort: running first, then degraded, then stopped, then by name
-    const STATUS_ORDER = { running: 0, registered: 1, degraded: 2, stopped: 3, unknown: 4 };
+    // Sort: running > configured > degraded > stopped
+    const STATUS_ORDER = { running: 0, configured: 1, degraded: 2, stopped: 3 };
     projects.sort((a, b) => {
       const orderDiff = (STATUS_ORDER[a.status] || 4) - (STATUS_ORDER[b.status] || 4);
       if (orderDiff !== 0) return orderDiff;
@@ -670,7 +834,8 @@ app.get('/api/projects', async (req, res) => {
     res.json({
       projects,
       total: projects.length,
-      running: projects.filter(p => p.status === 'running').length,
+      running: projects.filter(p => p.status === 'running' || p.status === 'configured').length,
+      scanned: containers.length,
       checked: new Date().toISOString(),
     });
   } catch (err) {

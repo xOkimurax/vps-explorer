@@ -45,6 +45,7 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
   const [error, setError] = useState(null);
   const [dualPanel, setDualPanel] = useState(false);
   const [showProcesses, setShowProcesses] = useState(false);
+  const [processSort, setProcessSort] = useState('mem');
   const [showProjects, setShowProjects] = useState(false);
 
   const currentPath = history[historyIdx] || initialPath;
@@ -244,8 +245,8 @@ const Panel = forwardRef(({ initialPath, onPathChange }, ref) => {
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-      <MetricsBar onRamClick={() => setShowProcesses(p => !p)} onProjectsClick={() => setShowProjects(p => !p)} agentCount={projectCount} />
-      <ProcessList visible={showProcesses} />
+      <MetricsBar onRamClick={() => { setShowProcesses(true); setProcessSort('mem'); }} onCpuClick={() => { setShowProcesses(true); setProcessSort('cpu'); }} onProjectsClick={() => setShowProjects(p => !p)} agentCount={projectCount} />
+      <ProcessList visible={showProcesses} sortBy={processSort} />
       <ProjectList visible={showProjects} />
       <Toolbar
         currentPath={currentPath}

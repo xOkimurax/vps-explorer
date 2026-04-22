@@ -12,7 +12,7 @@ function formatBytes(bytes) {
   return `${val.toFixed(1)} ${units[idx]}`;
 }
 
-export default function MetricsBar({ onRamClick, onProjectsClick, agentCount = 0 }) {
+export default function MetricsBar({ onRamClick, onCpuClick, onProjectsClick, agentCount = 0 }) {
   const [metrics, setMetrics] = useState(null);
   const [error, setError] = useState(null);
 
@@ -47,10 +47,13 @@ export default function MetricsBar({ onRamClick, onProjectsClick, agentCount = 0
   return (
     <div className="px-4 pt-3 pb-2">
       <div className="grid grid-cols-4 gap-2">
-        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-2">
+        <button
+          onClick={onCpuClick}
+          className="bg-slate-800/60 border border-slate-700 rounded-lg p-2 text-left hover:border-green-500/60 transition-colors"
+        >
           <div className="text-[10px] text-slate-400 uppercase">CPU</div>
           <div className="text-sm text-slate-200 font-semibold">{cpu}%</div>
-        </div>
+        </button>
         <button
           onClick={onRamClick}
           className="bg-slate-800/60 border border-slate-700 rounded-lg p-2 text-left hover:border-blue-500/60 transition-colors"

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-export default function ProcessList({ visible }) {
+export default function ProcessList({ visible, sortBy = 'mem' }) {
   const [processes, setProcesses] = useState([]);
   const [filter, setFilter] = useState('');
   const [error, setError] = useState(null);
@@ -25,17 +25,27 @@ export default function ProcessList({ visible }) {
   }, [visible]);
 
   const filtered = useMemo(() => {
-    if (!filter) return processes;
+    let sorted = [...processes];
+    if (sortBy === 'cpu') {
+      sorted.sort((a, b) => (b.cpuPercent || 0) - (a.cpuPercent || 0));
+    } else {
+      sorted.sort((a, b) => b.memPercent - a.memPercent);
+    }
+    if (!filter) return sorted;
     const q = filter.toLowerCase();
-    return processes.filter(p => p.command.toLowerCase().includes(q));
-  }, [processes, filter]);
+    return sorted.filter(p => p.command.toLowerCase().includes(q));
+  }, [processes, filter, sortBy]);
 
   if (!visible) return null;
+
+  const isCpu = sortBy === 'cpu';
 
   return (
     <div className="mx-4 mt-2 mb-2 bg-slate-800/60 border border-slate-700 rounded-lg">
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
-        <div className="text-xs text-slate-300 font-semibold">Procesos por RAM</div>
+        <div className="text-xs text-slate-300 font-semibold">
+          {isCpu ? 'Procesos por CPU' : 'Procesos por RAM'}
+        </div>
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
@@ -52,6 +62,7 @@ export default function ProcessList({ visible }) {
               <tr>
                 <th className="text-left px-3 py-1">PID</th>
                 <th className="text-left px-3 py-1">Proceso</th>
+                {isCpu && <th className="text-right px-3 py-1">%CPU</th>}
                 <th className="text-right px-3 py-1">%RAM</th>
                 <th className="text-right px-3 py-1">RSS</th>
               </tr>
@@ -61,6 +72,7 @@ export default function ProcessList({ visible }) {
                 <tr key={p.pid} className="border-t border-slate-800">
                   <td className="px-3 py-1 text-slate-400">{p.pid}</td>
                   <td className="px-3 py-1 text-slate-200">{p.command}</td>
+                  {isCpu && <td className="px-3 py-1 text-right text-green-400">{p.cpuPercent || 0}%</td>}
                   <td className="px-3 py-1 text-right text-slate-200">{p.memPercent}%</td>
                   <td className="px-3 py-1 text-right text-slate-400">{p.rssMB} MB</td>
                 </tr>
